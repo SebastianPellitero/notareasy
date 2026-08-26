@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Captura de foto</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        padding: 1rem;
+        background: #111;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      video {
+        width: 100%;
+        max-width: 480px;
+        border-radius: 8px;
+        background: #000;
+      }
+      button {
+        font-size: 1rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        border: none;
+        background: #fff;
+        color: #111;
+        font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      #status {
+        font-size: 0.9rem;
+        color: #aaa;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      Página de captura standalone. SIN build step, SIN framework, SIN
+      dependencia del resto de la app Next.js — esta carpeta se hostea
+      aparte (cualquier hosting estático: Netlify, GitHub Pages, S3, un
+      simple `npx serve`, etc.). El usuario decide dónde más adelante;
+      acá solo se scaffoldea.
+
+      La config se pasa por query params, porque un HTML estático no tiene
+      env vars ni backend que inyecte config en build time:
+        ?session=<sessionId>&api=<API_ORIGIN>
+
+      Ejemplo:
+      https://mi-capture-page.example.com/?session=abc123&api=https%3A%2F%2Fmiapp.example.com
+    -->
+    <video id="video" autoplay playsinline muted></video>
+    <button id="captureBtn">Sacar foto</button>
+    <p id="status">Pidiendo acceso a la cámara…</p>
+
+    <script>
+      (function () {
+        var video = document.getElementById('video');
+        var button = document.getElementById('captureBtn');
+        var statusEl = document.getElementById('status');
+
+        var params = new URLSearchParams(location.search);
+        var sessionId = params.get('session');
+        // TODO: si preferís no pasar el origen de la API por query param,
+        // hardcodealo acá una vez que sepas dónde está deployada la app
+        // Next.js, ej.: var apiOrigin = "https://notareasy.example.com";
+        var apiOrigin = params.get('api');
+
+        if (!sessionId || !apiOrigin) {
+          statusEl.textContent = 'Falta "session" o "api" en la URL. Volvé a escanear el QR.';
+          button.disabled = true;
+        } else {
+          navigator.mediaDevices
+            .getUserMedia({ video: { facingMode: 'environment' } })
+            .then(function (stream) {
+              video.srcObject = stream;
+              statusEl.textContent = 'Listo. Encuadrá y sacá la foto.';
+            })
+            .catch(function (err) {
+              statusEl.textContent = 'No se pudo acceder a la cámara: ' + err.message;
+              button.disabled = true;
+            });
+        }
+
+        button.addEventListener('click', function () {
+          if (!video.videoWidth) {
+            statusEl.textContent = 'La cámara todavía no está lista.';
+            return;
+          }
+
+          button.disabled = true;
+          statusEl.textContent = 'Subiendo foto…';
+
+          var canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          canvas.getContext('2d').drawImage(video, 0, 0);
+
+          canvas.toBlob(
+            function (blob) {
+              fetch(apiOrigin + '/api/sessions/' + sessionId + '/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'image/jpeg' },
+                body: blob,
+              })
+                .then(function (res) {
+                  if (!res.ok) throw new Error('HTTP ' + res.status);
+                  statusEl.textContent = 'Listo, ya podés cerrar esta pestaña.';
+                  video.pause();
+                  video.srcObject = null;
+                })
+                .catch(function (err) {
+                  statusEl.textContent = 'Error al subir: ' + err.message;
+                  button.disabled = false;
+                });
+            },
+            'image/jpeg',
+            0.9,
+          );
+        });
+      })();
+    </script>
+  </body>
+</html>
